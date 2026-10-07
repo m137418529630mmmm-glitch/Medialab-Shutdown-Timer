@@ -15,9 +15,15 @@ jobs:
 
     steps:
 
+      # ==========================================
+      # 1. Checkout
+      # ==========================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ==========================================
+      # 2. Extract ZIP
+      # ==========================================
       - name: Extract project ZIP
         shell: pwsh
         run: |
@@ -28,7 +34,7 @@ jobs:
             exit 1
           }
 
-          Write-Host "Using: $($zip.Name)"
+          Write-Host "Using ZIP: $($zip.Name)"
 
           if (Test-Path "app") {
             Remove-Item "app" -Recurse -Force
@@ -41,30 +47,53 @@ jobs:
             -DestinationPath "app" `
             -Force
 
-          Write-Host "Project extracted."
+          Write-Host "Project extracted successfully."
 
+      # ==========================================
+      # 3. Node.js
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      # ==========================================
+      # 4. Rust
+      # ==========================================
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # ==========================================
+      # 5. Install dependencies
+      # FIXED: legacy peer dependencies
+      # ==========================================
       - name: Install dependencies
         working-directory: app
         shell: pwsh
         run: |
-          npm install
-          npm install @tauri-apps/api
-          npm install --save-dev @tauri-apps/cli
+          npm install --legacy-peer-deps
+          npm install @tauri-apps/api --legacy-peer-deps
+          npm install --save-dev @tauri-apps/cli --legacy-peer-deps
 
+      # ==========================================
+      # 6. Create Tauri folders
+      # ==========================================
       - name: Create Tauri directories
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path "app\src-tauri\src" -Force | Out-Null
-          New-Item -ItemType Directory -Path "app\src-tauri\icons" -Force | Out-Null
+          New-Item `
+            -ItemType Directory `
+            -Path "app\src-tauri\src" `
+            -Force | Out-Null
 
+          New-Item `
+            -ItemType Directory `
+            -Path "app\src-tauri\icons" `
+            -Force | Out-Null
+
+      # ==========================================
+      # 7. Cargo.toml
+      # ==========================================
       - name: Create Cargo.toml
         shell: pwsh
         run: |
@@ -94,6 +123,9 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
+      # ==========================================
+      # 8. build.rs
+      # ==========================================
       - name: Create build.rs
         shell: pwsh
         run: |
@@ -108,6 +140,9 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
+      # ==========================================
+      # 9. Rust backend
+      # ==========================================
       - name: Create Rust backend
         shell: pwsh
         run: |
@@ -197,6 +232,9 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
+      # ==========================================
+      # 10. main.rs
+      # ==========================================
       - name: Create main.rs
         shell: pwsh
         run: |
@@ -213,13 +251,16 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
+      # ==========================================
+      # 11. Install YOUR ICO logo
+      # ==========================================
       - name: Install application icon
         shell: pwsh
         run: |
           $icon = "app\public\shutdown_power_icon.ico"
 
           if (-not (Test-Path $icon)) {
-            Write-Error "shutdown_power_icon.ico was not found in the ZIP."
+            Write-Error "shutdown_power_icon.ico was not found."
             exit 1
           }
 
@@ -228,8 +269,11 @@ jobs:
             "app\src-tauri\icons\icon.ico" `
             -Force
 
-          Write-Host "Application icon installed."
+          Write-Host "Your ICO logo installed successfully."
 
+      # ==========================================
+      # 12. Tauri configuration
+      # ==========================================
       - name: Create Tauri configuration
         shell: pwsh
         run: |
@@ -283,9 +327,17 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
-      - name: Create native bridge
+      # ==========================================
+      # 13. Native API bridge
+      # ==========================================
+      - name: Create native API bridge
         shell: pwsh
         run: |
+          New-Item `
+            -ItemType Directory `
+            -Path "app\src\utils" `
+            -Force | Out-Null
+
           $content = @'
           import { invoke } from "@tauri-apps/api/core";
 
@@ -306,22 +358,29 @@ jobs:
           }
           '@
 
-          New-Item -ItemType Directory -Path "app\src\utils" -Force | Out-Null
-
           Set-Content `
             -Path "app\src\utils\native.ts" `
             -Value $content `
             -Encoding UTF8
 
-      - name: Connect timer to native Windows actions
+      # ==========================================
+      # 14. Connect App.tsx to native Windows
+      # ==========================================
+      - name: Connect timer to Windows actions
         shell: pwsh
         run: |
           $file = "app\src\App.tsx"
+
+          if (-not (Test-Path $file)) {
+            Write-Error "App.tsx was not found."
+            exit 1
+          }
 
           $content = Get-Content `
             -Path $file `
             -Raw
 
+          # Add native import
           if ($content -notmatch "executeNativeAction") {
 
             $content = $content.Replace(
@@ -330,6 +389,7 @@ jobs:
             )
           }
 
+          # Timer expiration block
           $old = @'
               if (prev <= 1) {
                 clearInterval(timerRef.current!);
@@ -361,7 +421,7 @@ jobs:
           '@
 
           if (-not $content.Contains($old)) {
-            Write-Error "The timer expiration code was not found."
+            Write-Error "Timer expiration block was not found in App.tsx."
             exit 1
           }
 
@@ -372,8 +432,11 @@ jobs:
             -Value $content `
             -Encoding UTF8
 
-          Write-Host "Timer connected successfully."
+          Write-Host "Timer connected to Windows successfully."
 
+      # ==========================================
+      # 15. Package metadata
+      # ==========================================
       - name: Configure package
         shell: pwsh
         run: |
@@ -394,13 +457,19 @@ jobs:
               -Path $file `
               -Encoding UTF8
 
+      # ==========================================
+      # 16. Build React
+      # ==========================================
       - name: Build frontend
         working-directory: app
         shell: pwsh
         run: |
           npm run build
 
-      - name: Verify project
+      # ==========================================
+      # 17. Verify files
+      # ==========================================
+      - name: Verify Tauri project
         shell: pwsh
         run: |
           $required = @(
@@ -414,6 +483,7 @@ jobs:
           )
 
           foreach ($file in $required) {
+
             if (-not (Test-Path $file)) {
               Write-Error "Missing file: $file"
               exit 1
@@ -422,12 +492,18 @@ jobs:
             Write-Host "[OK] $file"
           }
 
-      - name: Build Windows installers
+      # ==========================================
+      # 18. Build EXE + MSI
+      # ==========================================
+      - name: Build Windows application
         working-directory: app
         shell: pwsh
         run: |
           npx tauri build --bundles nsis,msi
 
+      # ==========================================
+      # 19. Upload final installers
+      # ==========================================
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
