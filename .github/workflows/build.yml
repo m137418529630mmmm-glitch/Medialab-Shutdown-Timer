@@ -14,97 +14,86 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # ============================================
-      # 1) Checkout
-      # ============================================
-      - name: Checkout repository
+
+      # ==========================================
+      # 1. Download repository
+      # ==========================================
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ============================================
-      # 2) Extract the NEW ZIP
-      # ============================================
-      - name: Extract project ZIP
+      # ==========================================
+      # 2. Find and extract ZIP
+      # ==========================================
+      - name: Extract project
         shell: pwsh
         run: |
-          $zip = Get-ChildItem -Path . -Filter "*.zip" | Select-Object -First 1
+          $zip = Get-ChildItem -Path "." -Filter "*.zip" | Select-Object -First 1
 
           if (-not $zip) {
-            Write-Error "No ZIP file found in repository."
+            Write-Error "ZIP file not found."
             exit 1
           }
 
           Write-Host "Using ZIP: $($zip.Name)"
 
           if (Test-Path "app") {
-            Remove-Item -Recurse -Force "app"
+            Remove-Item "app" -Recurse -Force
           }
 
-          New-Item -ItemType Directory -Force -Path "app" | Out-Null
+          New-Item -ItemType Directory -Path "app" -Force | Out-Null
 
           Expand-Archive `
             -Path $zip.FullName `
             -DestinationPath "app" `
             -Force
 
-          Write-Host "Project extracted successfully."
+          Write-Host "ZIP extracted successfully."
 
-      # ============================================
-      # 3) Setup Node
-      # ============================================
+      # ==========================================
+      # 3. Setup Node
+      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # ============================================
-      # 4) Setup Rust
-      # ============================================
+      # ==========================================
+      # 4. Setup Rust
+      # ==========================================
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # ============================================
-      # 5) Install Tauri dependencies
-      # ============================================
-      - name: Install Tauri dependencies
+      # ==========================================
+      # 5. Install frontend dependencies
+      # ==========================================
+      - name: Install dependencies
         working-directory: app
         shell: pwsh
         run: |
           npm install
+          npm install @tauri-apps/api
+          npm install --save-dev @tauri-apps/cli
 
-          npm install @tauri-apps/api@latest
-
-          npm install --save-dev @tauri-apps/cli@latest
-
-      # ============================================
-      # 6) Create Tauri project structure
-      # ============================================
-      - name: Create Tauri project
+      # ==========================================
+      # 6. Create Tauri folders
+      # ==========================================
+      - name: Create Tauri structure
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path "app\src-tauri\src" -Force | Out-Null
+          New-Item -ItemType Directory -Path "app\src-tauri\icons" -Force | Out-Null
 
-          $srcTauri = "app\src-tauri"
-
-          if (Test-Path $srcTauri) {
-            Remove-Item -Recurse -Force $srcTauri
-          }
-
-          New-Item -ItemType Directory -Force -Path "$srcTauri\src" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$srcTauri\icons" | Out-Null
-
-          Write-Host "Tauri structure created."
-
-      # ============================================
-      # 7) Create Rust Cargo.toml
-      # ============================================
-      - name: Create Rust Cargo configuration
+      # ==========================================
+      # 7. Create Cargo.toml
+      # ==========================================
+      - name: Create Cargo configuration
         shell: pwsh
         run: |
-
-          $cargo = @'
+          $content = @'
 [package]
 name = "medialab-shutdown-timer"
 version = "1.0.0"
-description = "Medialab Shutdown Timer"
+description = "Medialab-Shutdown Timer"
 authors = ["MediaLab"]
 edition = "2021"
 
@@ -123,17 +112,16 @@ serde_json = "1"
 
           Set-Content `
             -Path "app\src-tauri\Cargo.toml" `
-            -Value $cargo `
+            -Value $content `
             -Encoding UTF8
 
-      # ============================================
-      # 8) Create Rust build.rs
-      # ============================================
-      - name: Create Rust build script
+      # ==========================================
+      # 8. Create build.rs
+      # ==========================================
+      - name: Create build script
         shell: pwsh
         run: |
-
-          $buildRs = @'
+          $content = @'
 fn main() {
     tauri_build::build()
 }
@@ -141,25 +129,27 @@ fn main() {
 
           Set-Content `
             -Path "app\src-tauri\build.rs" `
-            -Value $buildRs `
+            -Value $content `
             -Encoding UTF8
 
-      # ============================================
-      # 9) Create Rust lib.rs
-      # ============================================
-      - name: Create native Windows commands
+      # ==========================================
+      # 9. Create native Windows Rust commands
+      # ==========================================
+      - name: Create native Windows backend
         shell: pwsh
         run: |
-
-          $libRs = @'
+          $content = @'
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::process::Command;
 
 #[tauri::command]
 fn execute_action(action: String, force: bool) -> Result<(), String> {
+
     match action.as_str() {
+
         "shutdown" => {
+
             let mut command = Command::new("shutdown.exe");
 
             command
@@ -173,10 +163,11 @@ fn execute_action(action: String, force: bool) -> Result<(), String> {
 
             command
                 .spawn()
-                .map_err(|e| format!("Failed to execute shutdown: {}", e))?;
+                .map_err(|e| format!("Shutdown failed: {}", e))?;
         }
 
         "restart" => {
+
             let mut command = Command::new("shutdown.exe");
 
             command
@@ -190,26 +181,28 @@ fn execute_action(action: String, force: bool) -> Result<(), String> {
 
             command
                 .spawn()
-                .map_err(|e| format!("Failed to execute restart: {}", e))?;
+                .map_err(|e| format!("Restart failed: {}", e))?;
         }
 
         "lock" => {
+
             Command::new("rundll32.exe")
                 .args([
                     "user32.dll,LockWorkStation"
                 ])
                 .spawn()
-                .map_err(|e| format!("Failed to lock Windows: {}", e))?;
+                .map_err(|e| format!("Lock failed: {}", e))?;
         }
 
         "sleep" => {
+
             Command::new("rundll32.exe")
                 .args([
                     "powrprof.dll,SetSuspendState",
                     "0,1,0"
                 ])
                 .spawn()
-                .map_err(|e| format!("Failed to put Windows to sleep: {}", e))?;
+                .map_err(|e| format!("Sleep failed: {}", e))?;
         }
 
         _ => {
@@ -220,40 +213,37 @@ fn execute_action(action: String, force: bool) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn abort_action() -> Result<(), String> {
-    let _ = Command::new("shutdown.exe")
-        .arg("/a")
-        .spawn();
-
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            execute_action,
-            abort_action
-        ])
-        .run(tauri::generate_context!())
+
+        .invoke_handler(
+            tauri::generate_handler![
+                execute_action
+            ]
+        )
+
+        .run(
+            tauri::generate_context!()
+        )
+
         .expect("error while running Medialab-Shutdown Timer");
 }
 '@
 
           Set-Content `
             -Path "app\src-tauri\src\lib.rs" `
-            -Value $libRs `
+            -Value $content `
             -Encoding UTF8
 
-      # ============================================
-      # 10) Create main.rs
-      # ============================================
-      - name: Create Rust main entry
+      # ==========================================
+      # 10. Create main.rs
+      # ==========================================
+      - name: Create main entry
         shell: pwsh
         run: |
-
-          $mainRs = @'
+          $content = @'
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
@@ -263,17 +253,36 @@ fn main() {
 
           Set-Content `
             -Path "app\src-tauri\src\main.rs" `
-            -Value $mainRs `
+            -Value $content `
             -Encoding UTF8
 
-      # ============================================
-      # 11) Create Tauri configuration
-      # ============================================
+      # ==========================================
+      # 11. Copy YOUR ICO logo
+      # ==========================================
+      - name: Install application icon
+        shell: pwsh
+        run: |
+          $icon = "app\public\shutdown_power_icon.ico"
+
+          if (-not (Test-Path $icon)) {
+            Write-Error "shutdown_power_icon.ico was not found."
+            exit 1
+          }
+
+          Copy-Item `
+            $icon `
+            "app\src-tauri\icons\icon.ico" `
+            -Force
+
+          Write-Host "YOUR ICO logo installed successfully."
+
+      # ==========================================
+      # 12. Create Tauri configuration
+      # ==========================================
       - name: Create Tauri configuration
         shell: pwsh
         run: |
-
-          $config = @'
+          $content = @'
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Medialab-Shutdown Timer",
@@ -321,49 +330,16 @@ fn main() {
 
           Set-Content `
             -Path "app\src-tauri\tauri.conf.json" `
-            -Value $config `
+            -Value $content `
             -Encoding UTF8
 
-      # ============================================
-      # 12) Generate application icon
-      # ============================================
-      - name: Generate Tauri application icon
-        working-directory: app
+      # ==========================================
+      # 13. Create native.ts
+      # ==========================================
+      - name: Create native API bridge
         shell: pwsh
         run: |
-
-          $logo = "public\logo.png"
-
-          if (-not (Test-Path $logo)) {
-            $logo = "public\mediaLab_publishing_transparent.png"
-          }
-
-          if (-not (Test-Path $logo)) {
-            Write-Error "No logo PNG found."
-            exit 1
-          }
-
-          Write-Host "Generating Windows icon from: $logo"
-
-          npx tauri icon "$logo"
-
-          if (-not (Test-Path "src-tauri\icons\icon.ico")) {
-            Write-Error "Tauri icon.ico was not generated."
-            exit 1
-          }
-
-          Write-Host "Icon generated successfully."
-
-      # ============================================
-      # 13) Connect React UI to native Windows commands
-      # ============================================
-      - name: Connect React timer to Windows native commands
-        shell: pwsh
-        run: |
-
-          $nativeFile = "app\src\utils\native.ts"
-
-          $nativeCode = @'
+          $content = @'
 import { invoke } from "@tauri-apps/api/core";
 
 export type NativeAction =
@@ -376,141 +352,129 @@ export async function executeNativeAction(
   action: NativeAction,
   force: boolean
 ): Promise<void> {
+
   await invoke("execute_action", {
     action,
     force
   });
 }
-
-export async function abortNativeAction(): Promise<void> {
-  await invoke("abort_action");
-}
 '@
 
           Set-Content `
-            -Path $nativeFile `
-            -Value $nativeCode `
+            -Path "app\src\utils\native.ts" `
+            -Value $content `
             -Encoding UTF8
 
-          $appFile = "app\src\App.tsx"
+      # ==========================================
+      # 14. Connect App.tsx to native Windows
+      # ==========================================
+      - name: Connect timer to Windows
+        shell: pwsh
+        run: |
 
-          $content = Get-Content $appFile -Raw
+          $file = "app\src\App.tsx"
 
-          # Add native command import.
-          $oldImport = "import { MediaLabLogo } from './components/MediaLabLogo';"
+          $content = Get-Content `
+            $file `
+            -Raw
 
-          $newImport = @"
-import { MediaLabLogo } from './components/MediaLabLogo';
-import { executeNativeAction, abortNativeAction } from './utils/native';
-"@
+          # Add native import
+          $import = "import { executeNativeAction } from './utils/native';"
 
-          if ($content.Contains($oldImport)) {
-            $content = $content.Replace($oldImport, $newImport)
+          if ($content -notmatch "executeNativeAction") {
+
+            $content = $content.Replace(
+              "import { MediaLabLogo } from './components/MediaLabLogo';",
+              "import { MediaLabLogo } from './components/MediaLabLogo';`r`n$import"
+            )
           }
-          elseif ($content -notmatch "executeNativeAction") {
-            Write-Error "Could not find MediaLabLogo import in App.tsx."
-            exit 1
-          }
 
-          # Replace timer expiration behavior.
-          $oldExpiration = @"
+          # Replace timer expiration
+          $oldExpiration = @'
             setIsRunning(false);
             sounds.playAlarm();
             setIsLockScreenActive(true);
             return 0;
-"@
+'@
 
-          $newExpiration = @"
+          $newExpiration = @'
             setIsRunning(false);
             sounds.playAlarm();
 
-            void executeNativeAction(actionType, forceKill).catch((error) => {
-              console.error('Native Windows action failed:', error);
+            void executeNativeAction(
+              actionType,
+              forceKill
+            ).catch((error) => {
+              console.error(
+                "Windows action failed:",
+                error
+              );
             });
 
             return 0;
-"@
+'@
 
           if ($content.Contains($oldExpiration)) {
-            $content = $content.Replace($oldExpiration, $newExpiration)
-          }
-          else {
-            Write-Error "Could not find timer expiration block in App.tsx."
-            exit 1
-          }
 
-          # Replace Abort behavior.
-          $oldAbort = @"
-      sounds.playCancel();
-      setIsRunning(false);
-"@
+            $content = $content.Replace(
+              $oldExpiration,
+              $newExpiration
+            )
 
-          $newAbort = @"
-      sounds.playCancel();
-      setIsRunning(false);
+          } else {
 
-      void abortNativeAction().catch((error) => {
-        console.error('Native abort command failed:', error);
-      });
-"@
-
-          if ($content.Contains($oldAbort)) {
-            $content = $content.Replace($oldAbort, $newAbort)
-          }
-          else {
-            Write-Error "Could not find timer abort block in App.tsx."
+            Write-Error "Timer expiration block was not found."
             exit 1
           }
 
           Set-Content `
-            -Path $appFile `
+            -Path $file `
             -Value $content `
             -Encoding UTF8
 
-          Write-Host "React timer successfully connected to native Windows commands."
+          Write-Host "Timer connected to Windows native commands."
 
-      # ============================================
-      # 14) Force package metadata
-      # ============================================
-      - name: Configure package metadata
+      # ==========================================
+      # 15. Configure package name
+      # ==========================================
+      - name: Configure package
         shell: pwsh
         run: |
 
-          $packageFile = "app\package.json"
+          $file = "app\package.json"
 
           $package = Get-Content `
-            $packageFile `
+            $file `
             -Raw |
             ConvertFrom-Json
 
           $package.name = "medialab-shutdown-timer"
           $package.version = "1.0.0"
-          $package.description = "Medialab Shutdown Timer for Windows"
+          $package.description = "Medialab-Shutdown Timer"
 
-          $package | ConvertTo-Json -Depth 20 |
+          $package |
+            ConvertTo-Json -Depth 20 |
             Set-Content `
-              -Path $packageFile `
+              -Path $file `
               -Encoding UTF8
 
-      # ============================================
-      # 15) Build frontend first
-      # ============================================
-      - name: Build React application
+      # ==========================================
+      # 16. Build React
+      # ==========================================
+      - name: Build React
         working-directory: app
         shell: pwsh
         run: |
           npm run build
 
-      # ============================================
-      # 16) Verify Tauri source
-      # ============================================
-      - name: Verify Tauri project
+      # ==========================================
+      # 17. Verify everything
+      # ==========================================
+      - name: Verify build files
         shell: pwsh
         run: |
 
-          Write-Host "Checking Tauri files..."
-
-          $required = @(
+          $files = @(
             "app\src-tauri\Cargo.toml",
             "app\src-tauri\build.rs",
             "app\src-tauri\src\lib.rs",
@@ -520,42 +484,34 @@ import { executeNativeAction, abortNativeAction } from './utils/native';
             "app\src\utils\native.ts"
           )
 
-          foreach ($file in $required) {
+          foreach ($file in $files) {
+
             if (-not (Test-Path $file)) {
-              Write-Error "Missing required file: $file"
+
+              Write-Error "Missing: $file"
               exit 1
             }
 
             Write-Host "[OK] $file"
           }
 
-      # ============================================
-      # 17) Build Windows EXE + MSI + NSIS
-      # ============================================
-      - name: Build Windows application
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: app
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: Medialab-Shutdown-Timer-Windows-[arch]-[bundle]
-
-      # ============================================
-      # 18) Show final artifacts
-      # ============================================
-      - name: Show generated files
+      # ==========================================
+      # 18. Build Windows EXE / MSI / NSIS
+      # ==========================================
+      - name: Build Tauri application
+        working-directory: app
         shell: pwsh
         run: |
+          npx tauri build --bundles nsis,msi
 
-          Write-Host ""
-          Write-Host "=============================================="
-          Write-Host " BUILD FINISHED"
-          Write-Host "=============================================="
-          Write-Host ""
-
-          Get-ChildItem `
-            "app\src-tauri\target\release\bundle" `
-            -Recurse `
-            -File |
-            Select-Object FullName, Length
+      # ==========================================
+      # 19. Upload installers
+      # ==========================================
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: Medialab-Shutdown-Timer-Windows
+          path: |
+            app/src-tauri/target/release/bundle/nsis/*.exe
+            app/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
