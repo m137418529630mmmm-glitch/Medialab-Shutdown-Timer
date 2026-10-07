@@ -15,15 +15,9 @@ jobs:
 
     steps:
 
-      # ==========================================
-      # 1. Checkout
-      # ==========================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==========================================
-      # 2. Extract ZIP
-      # ==========================================
       - name: Extract project ZIP
         shell: pwsh
         run: |
@@ -47,26 +41,14 @@ jobs:
             -DestinationPath "app" `
             -Force
 
-          Write-Host "Project extracted successfully."
-
-      # ==========================================
-      # 3. Node.js
-      # ==========================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # ==========================================
-      # 4. Rust
-      # ==========================================
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # ==========================================
-      # 5. Install dependencies
-      # FIXED: legacy peer dependencies
-      # ==========================================
       - name: Install dependencies
         working-directory: app
         shell: pwsh
@@ -75,29 +57,17 @@ jobs:
           npm install @tauri-apps/api --legacy-peer-deps
           npm install --save-dev @tauri-apps/cli --legacy-peer-deps
 
-      # ==========================================
-      # 6. Create Tauri folders
-      # ==========================================
       - name: Create Tauri directories
         shell: pwsh
         run: |
-          New-Item `
-            -ItemType Directory `
-            -Path "app\src-tauri\src" `
-            -Force | Out-Null
+          New-Item -ItemType Directory -Path "app\src-tauri\src" -Force | Out-Null
+          New-Item -ItemType Directory -Path "app\src-tauri\icons" -Force | Out-Null
+          New-Item -ItemType Directory -Path "app\src\utils" -Force | Out-Null
 
-          New-Item `
-            -ItemType Directory `
-            -Path "app\src-tauri\icons" `
-            -Force | Out-Null
-
-      # ==========================================
-      # 7. Cargo.toml
-      # ==========================================
       - name: Create Cargo.toml
         shell: pwsh
         run: |
-          $content = @'
+          @'
           [package]
           name = "medialab-shutdown-timer"
           version = "1.0.0"
@@ -116,37 +86,21 @@ jobs:
           tauri = { version = "2", features = [] }
           serde = { version = "1", features = ["derive"] }
           serde_json = "1"
-          '@
+          '@ | Set-Content "app\src-tauri\Cargo.toml" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src-tauri\Cargo.toml" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 8. build.rs
-      # ==========================================
       - name: Create build.rs
         shell: pwsh
         run: |
-          $content = @'
+          @'
           fn main() {
               tauri_build::build()
           }
-          '@
+          '@ | Set-Content "app\src-tauri\build.rs" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src-tauri\build.rs" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 9. Rust backend
-      # ==========================================
       - name: Create Rust backend
         shell: pwsh
         run: |
-          $content = @'
+          @'
           #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
           use std::process::Command;
@@ -225,42 +179,26 @@ jobs:
                   .run(tauri::generate_context!())
                   .expect("error while running Medialab-Shutdown Timer");
           }
-          '@
+          '@ | Set-Content "app\src-tauri\src\lib.rs" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src-tauri\src\lib.rs" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 10. main.rs
-      # ==========================================
       - name: Create main.rs
         shell: pwsh
         run: |
-          $content = @'
+          @'
           #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
           fn main() {
               medialab_shutdown_timer_lib::run();
           }
-          '@
+          '@ | Set-Content "app\src-tauri\src\main.rs" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src-tauri\src\main.rs" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 11. Install YOUR ICO logo
-      # ==========================================
       - name: Install application icon
         shell: pwsh
         run: |
           $icon = "app\public\shutdown_power_icon.ico"
 
           if (-not (Test-Path $icon)) {
-            Write-Error "shutdown_power_icon.ico was not found."
+            Write-Error "shutdown_power_icon.ico not found."
             exit 1
           }
 
@@ -269,15 +207,12 @@ jobs:
             "app\src-tauri\icons\icon.ico" `
             -Force
 
-          Write-Host "Your ICO logo installed successfully."
+          Write-Host "Application icon installed."
 
-      # ==========================================
-      # 12. Tauri configuration
-      # ==========================================
       - name: Create Tauri configuration
         shell: pwsh
         run: |
-          $content = @'
+          @'
           {
             "$schema": "https://schema.tauri.app/config/2",
             "productName": "Medialab-Shutdown Timer",
@@ -311,34 +246,16 @@ jobs:
 
             "bundle": {
               "active": true,
-              "targets": [
-                "msi",
-                "nsis"
-              ],
-              "icon": [
-                "icons/icon.ico"
-              ]
+              "targets": ["msi", "nsis"],
+              "icon": ["icons/icon.ico"]
             }
           }
-          '@
+          '@ | Set-Content "app\src-tauri\tauri.conf.json" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src-tauri\tauri.conf.json" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 13. Native API bridge
-      # ==========================================
-      - name: Create native API bridge
+      - name: Create native bridge
         shell: pwsh
         run: |
-          New-Item `
-            -ItemType Directory `
-            -Path "app\src\utils" `
-            -Force | Out-Null
-
-          $content = @'
+          @'
           import { invoke } from "@tauri-apps/api/core";
 
           export type NativeAction =
@@ -356,96 +273,58 @@ jobs:
               force
             });
           }
-          '@
+          '@ | Set-Content "app\src\utils\native.ts" -Encoding UTF8
 
-          Set-Content `
-            -Path "app\src\utils\native.ts" `
-            -Value $content `
-            -Encoding UTF8
-
-      # ==========================================
-      # 14. Connect App.tsx to native Windows
-      # ==========================================
-      - name: Connect timer to Windows actions
+      - name: Connect App.tsx to native Windows
         shell: pwsh
         run: |
           $file = "app\src\App.tsx"
+          $content = Get-Content $file -Raw
 
-          if (-not (Test-Path $file)) {
-            Write-Error "App.tsx was not found."
-            exit 1
-          }
-
-          $content = Get-Content `
-            -Path $file `
-            -Raw
-
-          # Add native import
           if ($content -notmatch "executeNativeAction") {
-
             $content = $content.Replace(
               "import { MediaLabLogo } from './components/MediaLabLogo';",
               "import { MediaLabLogo } from './components/MediaLabLogo';`r`nimport { executeNativeAction } from './utils/native';"
             )
           }
 
-          # Timer expiration block
-          $old = @'
-              if (prev <= 1) {
-                clearInterval(timerRef.current!);
-                setIsRunning(false);
-                sounds.playAlarm();
-                setIsLockScreenActive(true);
-                return 0;
-              }
-          '@
+          $old = "setIsLockScreenActive(true);"
 
-          $new = @'
-              if (prev <= 1) {
-                clearInterval(timerRef.current!);
-                setIsRunning(false);
-                sounds.playAlarm();
-
-                void executeNativeAction(
-                  actionType,
-                  forceKill
-                ).catch((error) => {
-                  console.error(
-                    "Windows action failed:",
-                    error
-                  );
-                });
-
-                return 0;
-              }
-          '@
-
-          if (-not $content.Contains($old)) {
-            Write-Error "Timer expiration block was not found in App.tsx."
+          if ($content -notmatch [regex]::Escape($old)) {
+            Write-Error "setIsLockScreenActive(true) was not found."
             exit 1
           }
 
-          $content = $content.Replace($old, $new)
+          $new = @"
+            void executeNativeAction(
+              actionType,
+              forceKill
+            ).catch((error) => {
+              console.error(
+                "Windows action failed:",
+                error
+              );
+            });
+"@
+
+          $content = $content.Replace(
+            "setIsLockScreenActive(true);",
+            $new.TrimEnd()
+          )
 
           Set-Content `
             -Path $file `
             -Value $content `
             -Encoding UTF8
 
-          Write-Host "Timer connected to Windows successfully."
+          Write-Host "App.tsx connected to native Windows actions."
 
-      # ==========================================
-      # 15. Package metadata
-      # ==========================================
       - name: Configure package
         shell: pwsh
         run: |
           $file = "app\package.json"
 
-          $package = Get-Content `
-            -Path $file `
-            -Raw |
-            ConvertFrom-Json
+          $package = Get-Content $file -Raw | ConvertFrom-Json
 
           $package.name = "medialab-shutdown-timer"
           $package.version = "1.0.0"
@@ -453,26 +332,18 @@ jobs:
 
           $package |
             ConvertTo-Json -Depth 20 |
-            Set-Content `
-              -Path $file `
-              -Encoding UTF8
+            Set-Content $file -Encoding UTF8
 
-      # ==========================================
-      # 16. Build React
-      # ==========================================
       - name: Build frontend
         working-directory: app
         shell: pwsh
         run: |
           npm run build
 
-      # ==========================================
-      # 17. Verify files
-      # ==========================================
-      - name: Verify Tauri project
+      - name: Verify Tauri files
         shell: pwsh
         run: |
-          $required = @(
+          $files = @(
             "app\src-tauri\Cargo.toml",
             "app\src-tauri\build.rs",
             "app\src-tauri\src\lib.rs",
@@ -482,28 +353,21 @@ jobs:
             "app\src\utils\native.ts"
           )
 
-          foreach ($file in $required) {
-
+          foreach ($file in $files) {
             if (-not (Test-Path $file)) {
-              Write-Error "Missing file: $file"
+              Write-Error "Missing: $file"
               exit 1
             }
 
             Write-Host "[OK] $file"
           }
 
-      # ==========================================
-      # 18. Build EXE + MSI
-      # ==========================================
       - name: Build Windows application
         working-directory: app
         shell: pwsh
         run: |
           npx tauri build --bundles nsis,msi
 
-      # ==========================================
-      # 19. Upload final installers
-      # ==========================================
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
