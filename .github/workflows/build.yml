@@ -239,6 +239,7 @@ jobs:
                   "center": true
                 }
               ],
+
               "security": {
                 "csp": null
               }
@@ -247,7 +248,9 @@ jobs:
             "bundle": {
               "active": true,
               "targets": ["msi", "nsis"],
-              "icon": ["icons/icon.ico"]
+              "icon": [
+                "icons/icon.ico"
+              ]
             }
           }
           '@ | Set-Content "app\src-tauri\tauri.conf.json" -Encoding UTF8
@@ -279,36 +282,60 @@ jobs:
         shell: pwsh
         run: |
           $file = "app\src\App.tsx"
+
+          if (-not (Test-Path $file)) {
+            Write-Error "App.tsx not found."
+            exit 1
+          }
+
           $content = Get-Content $file -Raw
 
           if ($content -notmatch "executeNativeAction") {
-            $content = $content.Replace(
-              "import { MediaLabLogo } from './components/MediaLabLogo';",
-              "import { MediaLabLogo } from './components/MediaLabLogo';`r`nimport { executeNativeAction } from './utils/native';"
-            )
+
+            $importMarker = "import { MediaLabLogo } from './components/MediaLabLogo';"
+
+            if ($content.Contains($importMarker)) {
+
+              $nativeImport = @"
+          import { MediaLabLogo } from './components/MediaLabLogo';
+          import { executeNativeAction } from './utils/native';
+          "@
+
+              $content = $content.Replace(
+                $importMarker,
+                $nativeImport.TrimEnd()
+              )
+
+            }
+            else {
+              Write-Error "MediaLabLogo import was not found in App.tsx."
+              exit 1
+            }
           }
 
           $old = "setIsLockScreenActive(true);"
 
-          if ($content -notmatch [regex]::Escape($old)) {
+          if (-not $content.Contains($old)) {
             Write-Error "setIsLockScreenActive(true) was not found."
             exit 1
           }
 
           $new = @"
-            void executeNativeAction(
-              actionType,
-              forceKill
-            ).catch((error) => {
-              console.error(
-                "Windows action failed:",
-                error
-              );
-            });
-"@
+          void executeNativeAction(
+            actionType,
+            forceKill
+          ).catch((error) => {
+            console.error(
+              "Windows action failed:",
+              error
+            );
+          });
+
+          setIsLockScreenActive(true);
+          "@
 
           $content = $content.Replace(
-            "setIsLockScreenActive(true);",
+            $old,
             $new.TrimEnd()
           )
 
@@ -323,6 +350,11 @@ jobs:
         shell: pwsh
         run: |
           $file = "app\package.json"
+
+          if (-not (Test-Path $file)) {
+            Write-Error "package.json not found."
+            exit 1
+          }
 
           $package = Get-Content $file -Raw | ConvertFrom-Json
 
@@ -354,6 +386,7 @@ jobs:
           )
 
           foreach ($file in $files) {
+
             if (-not (Test-Path $file)) {
               Write-Error "Missing: $file"
               exit 1
